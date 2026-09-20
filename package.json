@@ -1,0 +1,40 @@
+{
+  "name": "dsh-plugin-host-monitor",
+  "description": "远程服务器监控（SSH 拉取·目标机零部署）：GPU×2 温度/使用率/显存、CPU 温度/使用率、内存使用率 → 状态胶囊 + tools + 阈值告警",
+  "version": "0.8.1",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "scripts"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "host-monitor",
+    "monitoring",
+    "ssh",
+    "nvidia-smi"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DearMrChai/dsh-plugin-host-monitor.git"
+  },
+  "dependencies": {
+    "ssh2": "^1.16.0"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "slots"
+      ],
+      "platform": "web"
+    }
+  }
+}

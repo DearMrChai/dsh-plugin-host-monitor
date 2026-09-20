@@ -1,0 +1,9 @@
+node_modules/
+dist/
+# lib/ is tracked — pure-JS source (no build step), pre-built artifacts ship in-tree
+package-lock.json
+pnpm-lock.yaml
+*.tgz
+_backup/
+.DS_Store
+Thumbs.db
