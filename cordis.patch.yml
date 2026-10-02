@@ -1,0 +1,11 @@
+# dsh bundle patch —— 桌面端 0.2.0-rc.2 官方 install 会自动把本包登记进 profile bundles
+# （2026-09-29 探针 dsh-plugin-desktop-probe 全链路实证）。
+# 凭据不进仓库（0.8.1 脱敏原则）：sshUser/sshPass 留空 = 采集不连；intervalMs 0 = 采集默认关。
+# 真实凭据由 profile 层 cordis.patch.yml 按 id: host-monitor 覆盖 config（patch 对 config 是整体替换语义）。
+- insert:
+    - id: host-monitor
+      name: dsh-plugin-host-monitor
+      inject: [settings, tools]
+      config:
+        enabled: true
+        intervalMs: 0
