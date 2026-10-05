@@ -465,6 +465,17 @@ console.log('[16] swap 状态机事件（0.10.0：模型卸载中性化 / 入口
   ok('armed→失联 2 帧 → vllm_stop warn（真告警）', c2.recentEvents(200).some((e) => e.type === 'vllm_stop' && e.level === 'warn'))
   step2(null, DOWN)
   ok('持续失联不重复 fire', c2.recentEvents(200).filter((e) => e.type === 'vllm_stop').length === 1)
+
+  // 模型名清空语义（0.10.0 用户裁定：无臂装载/换臂中不残留上次的模型名）
+  const c3 = new MonitorCore({ intervalMs: 3000, maxSamples: 50 })
+  c3.setModelName('qwen-x')
+  ok('setModelName 设置生效', c3.state().vllmModelName === 'qwen-x')
+  c3.setModelName('')
+  ok('setModelName("") 清空 → state().vllmModelName = null', c3.state().vllmModelName === null)
+  ok('清空不发 vllm_model 事件（原因由 💤/🔁/掉线事件说明）', c3.recentEvents(50).filter((e) => e.type === 'vllm_model').length === 1)
+  const c4 = new MonitorCore({ intervalMs: 3000, maxSamples: 50 })
+  c4.setModelName('a'); c4.ingest({ host: 't', gpu: [], mem: { usedMB: 1, totalMB: 2, pct: 50 }, vllmModelName: '' })
+  ok('帧内名字为空不清空（单次 /v1/models 失败不闪空）', c4.state().vllmModelName === 'a')
 }
 
 console.log('\n结果：' + pass + ' 通过 / ' + fail + ' 失败')
