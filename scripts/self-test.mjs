@@ -5,7 +5,9 @@
 //     **ssh2 故意不 hook**——它必须真实装在本包 node_modules（桌面端 link: 装载时 DSH 只从插件自己的
 //     node_modules 解析运行时依赖；缺失 = 插件列表「did not activate … failed to import」+ 小窗整块消失，
 //     2026-10-05 实际踩过）。跑自测前先 `npm install`（依赖见 package.json）。
-import { registerHooks } from 'node:module'
+import { registerHooks, createRequire } from 'node:module'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const winUrl = (p) => 'file:///' + p.replaceAll('\\', '/')
 registerHooks({
@@ -34,7 +36,22 @@ const ok = (name, cond, detail) => {
 }
 const throws = (fn) => { try { fn(); return false } catch { return true } }
 
-console.log('[0] 冒烟：index.js 模块装载 + Config（提前拦截宿主 API 失配/顶层语法错）')
+console.log('[0] 依赖预检：本包 node_modules 必须自带运行时依赖（桌面端 link: 装载只认插件真实路径）')
+{
+  // 2026-10-05 实测踩坑：桌面端以 junction 装载时，Node 按插件真实路径（E:\...）解析裸导入，
+  // 走不到 DSH 的模块回退目录（$DSH_HOME/profiles/node_modules）——所以这三个包必须真实装在本包内。
+  // 缺任意一个 → 插件列表只报 `failed to import`（真异常被 logger 吞），小窗整块消失。
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const req = createRequire(path.join(root, 'package.json'))
+  for (const spec of ['ssh2', '@deepseek-ai/schemastery', '@deepseek-ai/dsh-tools']) {
+    let resolved = null
+    try { resolved = req.resolve(spec) } catch { /* 见 ok 断言 */ }
+    ok('本包 node_modules 内含 ' + spec, !!resolved,
+      '修复：`npm install` + `node scripts/install-peers.mjs`（DSH 内部包从安装目录拷入）')
+  }
+}
+
+console.log('[0b] 冒烟：index.js 模块装载 + Config（提前拦截宿主 API 失配/顶层语法错）')
 {
   let idx = null, loadErr = null
   try { idx = await import('../lib/index.js') } catch (e) { loadErr = e?.message || String(e) }

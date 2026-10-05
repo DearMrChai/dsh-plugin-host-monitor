@@ -139,6 +139,11 @@ HM_SSH_PASS=密码 node scripts/verify-142.mjs 10.226.127.71   # 走 ZeroTier
 - **小窗**：推理卡 off 态细分——`加载中 {臂名}…`/`模型未装载（闲置自动释放）`/`推理入口掉线`（原版「离线」保留给直连无数据）；armed 时标题下加一行小字「入口 :8000 · 臂 :8012」
 - **数据/配置**：`vllmBaseUrl` 语义变「推理入口地址」（默认值不变）；无新增配置项；硬件半（SSH GPU/CPU/内存/网速）0 改动
 - 自测：`scripts/self-test.mjs` 新增 swap 三分支/目录探测/新名 TPOT/状态机事件用例（本地 HTTP stub，无需 142）
+- **⚠ 装载依赖（桌面端 `link:` 装法必读）**：本包运行时依赖必须真实装在自己的 `node_modules` 里——
+  `npm install`（装 `ssh2`）+ `node scripts/install-peers.mjs`（从 DSH 安装目录拷入 `@deepseek-ai/schemastery`、`@deepseek-ai/dsh-tools` 及依赖闭包）。
+  原因：桌面端以 junction 直连本仓库时，Node 按**插件真实路径**解析裸导入，走不到 DSH 的模块回退目录
+  （`$DSH_HOME/profiles/node_modules`，那些 DSH 内部包只在那里）；缺任一依赖 → 插件列表只报 `failed to import`（真异常被 logger 吞掉）、小窗整块消失。
+  自测 `[0]` 已内置这三项预检，缺了会直接报错并给出修复命令
 
 ### 0.9.0（桌面端 0.2.0 兼容）
 - DSH 桌面端 0.2.0-rc.2 的 dsh-settings 重构（`register`/`watch` 已删）→ host 半 apply 能力探测（无 register 则跳过 namespace 闭环，config 由 `apply(ctx, config)` 参数直接给出）；client 半 inject 只留 slots（桌面端无 settingsScope 服务，设置卡缺席自动跳过）；详见 commit c615876
