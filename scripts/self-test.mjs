@@ -1,7 +1,10 @@
 // scripts/self-test.mjs — 纯逻辑自测（无需 SSH/142）
 // [0] 冒烟：真实求值 lib/index.js 模块顶层 + Config 断言——cordis 的 Config 定义在模块顶层，
 //     z.number().int() 这类宿主 API 失配只在模块求值/装载时暴露（原 0.7.0 启动崩溃的根因），在这里提前拦截。
-//     宿主依赖映射（自测环境免装包）：schemastery/dsh-tools 经 registerHooks 解析到 DSH 安装真身，ssh2 解析到 repo 内本地副本（remote-net-tool）。
+//     宿主依赖映射（自测环境免装包）：schemastery/dsh-tools 经 registerHooks 解析到 DSH 安装真身；
+//     **ssh2 故意不 hook**——它必须真实装在本包 node_modules（桌面端 link: 装载时 DSH 只从插件自己的
+//     node_modules 解析运行时依赖；缺失 = 插件列表「did not activate … failed to import」+ 小窗整块消失，
+//     2026-10-05 实际踩过）。跑自测前先 `npm install`（依赖见 package.json）。
 import { registerHooks } from 'node:module'
 
 const winUrl = (p) => 'file:///' + p.replaceAll('\\', '/')
@@ -9,8 +12,7 @@ registerHooks({
   resolve(specifier, _context, nextResolve) {
     if (specifier === '@deepseek-ai/schemastery') return { url: winUrl('D:/DevEnv/npm-global/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/schemastery/lib/index.mjs'), shortCircuit: true }
     if (specifier === '@deepseek-ai/dsh-tools') return { url: new URL('./shims/dsh-tools.mjs', import.meta.url).href, shortCircuit: true }
-    // ssh2：桌面端经 junction 直连 repo 运行时，web profile 运行时副本已弃用 → 指向 repo 内 remote-net-tool 的本地副本
-    if (specifier === 'ssh2') return { url: winUrl('E:/DSH-workspace/代码仓库/remote-net-tool/node_modules/ssh2/lib/index.js'), shortCircuit: true }
+    // ssh2 走 Node 原生解析：命中本包 node_modules/ssh2（装不上就会在 [0] 冒烟里明确报错——这是故意的）
     return nextResolve(specifier, _context)
   },
 })
