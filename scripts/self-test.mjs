@@ -205,6 +205,22 @@ console.log('[8] 推理指标：llama.cpp / vLLM 双映射（真实样本）')
   ok('前缀缓存原始计数带出', v4.prefixCacheHitsTotal === 150 && v4.prefixCacheQueriesTotal === 200 && v4.promptTokensCachedTotal === 150)
   ok('queries=0 → 命中率 null（卡片显示 —）', mapInferenceMetrics(parsePrometheusText('vllm:prefix_cache_queries_total 0\nvllm:prefix_cache_hits_total 0')).prefixCacheHitRatePct === null)
   ok('llama.cpp 档无前缀缓存字段 → null', v1.prefixCacheHitRatePct === null && v1.prefixCacheHitsTotal === null)
+
+  // 相位耗时族（prefill / decode / queue 直方图均值 + 已完成请求数）
+  const v5 = mapInferenceMetrics(parsePrometheusText([
+    'vllm:request_prefill_time_seconds_sum 0.18069197196746245',
+    'vllm:request_prefill_time_seconds_count 2',
+    'vllm:request_decode_time_seconds_sum 2.1319094380014576',
+    'vllm:request_decode_time_seconds_count 2',
+    'vllm:request_queue_time_seconds_sum 4.4534041080623865e-05',
+    'vllm:request_queue_time_seconds_count 2',
+    'vllm:request_inference_time_seconds_count 2',
+  ].join('\n')))
+  ok('prefill 均值 90ms（0.181s/2，实测值）', v5.prefillMs === 90, 'got ' + v5.prefillMs)
+  ok('decode 均值 1066ms（2.132s/2，实测值）', v5.decodeMs === 1066, 'got ' + v5.decodeMs)
+  ok('queue 均值 0ms（0.04ms 取整）', v5.queueMs === 0, 'got ' + v5.queueMs)
+  ok('已完成请求数 = 2', v5.requestCount === 2, 'got ' + v5.requestCount)
+  ok('无相位指标 → 全 null（卡片显示 —）', v3.prefillMs === null && v3.decodeMs === null && v3.requestCount === null)
 }
 console.log('[9] 模型名解析（vLLM data[0].id / llama models[0].name / 截断兜底）')
 {
