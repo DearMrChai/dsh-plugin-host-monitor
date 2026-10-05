@@ -37,7 +37,7 @@ nvidia-smi --query-gpu=index,name,temperature.gpu,utilization.gpu,memory.used,me
 | thresholds | 默认 | GPU>82℃ 预警 / >90℃ 危险；CPU>75℃ / >85℃；内存>90%；GPU 使用率连续 5 帧≥95%；vLLM KV 缓存>85%、请求排队≥8（连续 3 帧） |
 | simulate | false | 模拟模式：不连 142，本地生成演示数据 |
 | showGpu / showVllm / showCpu | true | 小窗模块显示勾选：显卡块 / 推理块 / CPU·内存块 是否显示（收起态三槽同步遵循） |
-| vllmBaseUrl | http://{host}:8000 | 推理服务直连取数地址（宿主机直接 HTTP GET /metrics 与 /v1/models，不再经 SSH）；端口/路径变了直接改；支持 `{host}` 占位符=当前所选目标 IP（跟随 ZeroTier/局域网切换） |
+| vllmBaseUrl | http://{host}:8000 | 推理入口地址（0.10.0）：llama-swap 统一入口或 vLLM/llama.cpp 直连地址；swap 在时自动换臂端口取 /metrics 与 /v1/models，非 swap 当直连后端；支持 `{host}` 占位符=当前所选目标 IP（跟随 ZeroTier/局域网切换） |
 | vllmModelName | （空） | vLLM 模型名手动兜底（可选）：自动读取 /v1/models 失败时显示此值；**留空 = 不兜底**，推理服务器离线时模型名显示空/「无」（不再显示旧默认值） |
 | probeIntervalMs | 60000 | llama.cpp（llama.cpp-new）速率/时延探针间隔：每 intervalMs 发一发 64-token 小请求读服务端自计时 timings（TTFT/TPOT/输入速率/生成速率）；0 = 关；vLLM 引擎不受影响 |
 
@@ -126,6 +126,22 @@ HM_SSH_PASS=密码 node scripts/verify-142.mjs 10.226.127.71   # 走 ZeroTier
 ```
 
 ## 变更记录
+
+### 0.10.0（推理面适配 llama-swap：入口探测 + 臂端口取数 + 换臂会员跟随）
+- **背景**：142 推理架构换代为 llama-swap + vLLM（:8000 成统一入口，按模型名路由，臂动态起停、端口由 swap 自 8010 起分配）；旧逻辑「:8000 就是 vLLM」直拉 `/metrics`/`/v1/models` 失真——swap 的 `/metrics` 只出 `llamaswap_*` 不透传 `vllm:*`，`alive` 判据（`vllm:*` 有无）在臂 ttl 到点卸载时误报「服务消失」
+- **取数三分支**（`lib/http-metrics.js` 新增 `fetchInference`/`fetchSwapStatus`/`fetchCatalog`/`armUrlFromProxy`）：每周期先探 `{base}/running`——
+  - **200+JSON = llama-swap**：取首个 `state=ready` 臂，把其 `proxy`（如 `http://localhost:8012`）的本机地址改写为目标 IP 后去**臂端口**取 `/metrics`（+ 低频 `/v1/models`）
+  - **404/非 JSON = 直连形态**：退回旧行为（base 端口直接当 vLLM/llama.cpp）——兼容日后拆掉 swap
+  - **连接失败 = 入口失联**（state=down，触发原「连续 2 帧消失」告警）
+- **状态语义**（frame/state 新增 `swap: { up, state, armId, armPort, loadingArm }`）：`armed`（臂在跑）/`idle`（无臂装载，**中性正常态**，不告警）/`loading`（换臂加载中）/`direct`（非 swap）/`down`（入口失联）。核心事件引擎分三支：`vllm_start`（恢复）、`vllm_idle`（💤 未装载 info）、`vllm_swapping`（🔁 换臂中 info）；仅 `down`/直连无数据才累计 `vllm_stop` warn
+- **模型名跟随换臂**（`index.js` followArmName）：/running 每周期已报告 ready 臂（零额外请求）；臂 id 变化才刷新——同臂命中「臂 id→served 名」缓存直接设，新臂低频拉一次其 `/v1/models`（served 名由 useModelName 固定，同臂不变）；refresh 按钮/开采集/切频率走 swap 感知的 `refreshInferenceName`
+- **新 vLLM fork 指标改名适配**（2026-10 于 142 实测）：TPOT 先认 `request_time_per_output_token_seconds` 新名、旧名 fallback；`gpu_cache_usage_perc`/`num_requests_swapped` 上游已删 → 相应字段 null（卡片 —、告警自动跳过）
+- **小窗**：推理卡 off 态细分——`加载中 {臂名}…`/`模型未装载（闲置自动释放）`/`推理入口掉线`（原版「离线」保留给直连无数据）；armed 时标题下加一行小字「入口 :8000 · 臂 :8012」
+- **数据/配置**：`vllmBaseUrl` 语义变「推理入口地址」（默认值不变）；无新增配置项；硬件半（SSH GPU/CPU/内存/网速）0 改动
+- 自测：`scripts/self-test.mjs` 新增 swap 三分支/目录探测/新名 TPOT/状态机事件用例（本地 HTTP stub，无需 142）
+
+### 0.9.0（桌面端 0.2.0 兼容）
+- DSH 桌面端 0.2.0-rc.2 的 dsh-settings 重构（`register`/`watch` 已删）→ host 半 apply 能力探测（无 register 则跳过 namespace 闭环，config 由 `apply(ctx, config)` 参数直接给出）；client 半 inject 只留 slots（桌面端无 settingsScope 服务，设置卡缺席自动跳过）；详见 commit c615876
 
 ### 0.8.1（条测改刷新：一键采一帧 + 补拉模型名）
 - **撤「条测」按钮**：小窗设置行的「条测」（进度条测试：循环 ok/warn/danger 假填充、不影响真实数值）及其全部关联代码移除——`barTestMode`/`BAR_TEST`/`barEff`/`cycleBar` 状态与离线推理卡的空壳兜底一并清理

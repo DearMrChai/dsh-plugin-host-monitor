@@ -1,7 +1,7 @@
 // scripts/self-test.mjs — 纯逻辑自测（无需 SSH/142）
 // [0] 冒烟：真实求值 lib/index.js 模块顶层 + Config 断言——cordis 的 Config 定义在模块顶层，
 //     z.number().int() 这类宿主 API 失配只在模块求值/装载时暴露（原 0.7.0 启动崩溃的根因），在这里提前拦截。
-//     宿主依赖映射（自测环境免装包）：schemastery/dsh-tools 经 registerHooks 解析到 DSH 安装真身，ssh2 解析到运行时副本。
+//     宿主依赖映射（自测环境免装包）：schemastery/dsh-tools 经 registerHooks 解析到 DSH 安装真身，ssh2 解析到 repo 内本地副本（remote-net-tool）。
 import { registerHooks } from 'node:module'
 
 const winUrl = (p) => 'file:///' + p.replaceAll('\\', '/')
@@ -9,7 +9,8 @@ registerHooks({
   resolve(specifier, _context, nextResolve) {
     if (specifier === '@deepseek-ai/schemastery') return { url: winUrl('D:/DevEnv/npm-global/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/schemastery/lib/index.mjs'), shortCircuit: true }
     if (specifier === '@deepseek-ai/dsh-tools') return { url: new URL('./shims/dsh-tools.mjs', import.meta.url).href, shortCircuit: true }
-    if (specifier === 'ssh2') return { url: winUrl((process.env.USERPROFILE || process.env.HOME || '') + '/.dsh/profiles/web/node_modules/ssh2/lib/index.js'), shortCircuit: true }
+    // ssh2：桌面端经 junction 直连 repo 运行时，web profile 运行时副本已弃用 → 指向 repo 内 remote-net-tool 的本地副本
+    if (specifier === 'ssh2') return { url: winUrl('E:/DSH-workspace/代码仓库/remote-net-tool/node_modules/ssh2/lib/index.js'), shortCircuit: true }
     return nextResolve(specifier, _context)
   },
 })
@@ -19,7 +20,7 @@ import {
   parseTempInput, parseCollectOutput, parseModelsOutput, MonitorCore,
   decimateFrames, windowDelta, parseNetDev, parseIpAddr,
 } from '../lib/core.js'
-import { parsePrometheusText, mapInferenceMetrics, fetchInferenceMetrics } from '../lib/http-metrics.js'
+import { parsePrometheusText, mapInferenceMetrics, fetchInference, armUrlFromProxy } from '../lib/http-metrics.js'
 import { probeInfer } from '../lib/probe.js'
 
 // 注：index.js 必须动态 import（放在 registerHooks 之后求值）；静态 import 因 hoist 会先于映射注册执行。
@@ -159,6 +160,21 @@ console.log('[8] 推理指标：llama.cpp / vLLM 双映射（真实样本）')
   ok('vllm 运行/排队/KV 87%', v2.runningCount === 2 && v2.waitingCount === 5 && v2.kvCacheUsagePct === 87, JSON.stringify(v2))
   ok('vllm TTFT=400ms / TPOT=40ms', v2.ttftMs === 400 && v2.tpotMs === 40, JSON.stringify(v2))
   ok('空输入 → alive=false', mapInferenceMetrics({}).alive === false)
+
+  // 0.10.0：新 vLLM fork 指标改名（2026-10 于 142 实测）——TPOT 新名 + 旧名并存；gpu_cache/swapped 上游已删
+  const vllmNewText = [
+    'vllm:num_requests_running 1.0',
+    'vllm:kv_cache_usage_perc 0.42',
+    'vllm:request_time_per_output_token_seconds_sum 3.0',
+    'vllm:request_time_per_output_token_seconds_count 60',
+    'vllm:inter_token_latency_seconds_sum 2.0',
+    'vllm:inter_token_latency_seconds_count 40',
+  ].join('\n')
+  const v3 = mapInferenceMetrics(parsePrometheusText(vllmNewText))
+  ok('新 fork TPOT=新名 request_time_per_output_token（50ms）', v3.tpotMs === 50, 'got ' + v3.tpotMs)
+  ok('旧名 TPOT 仍识别（fallback, 40ms）', v2.tpotMs === 40)
+  ok('两名字均无 → TPOT null', mapInferenceMetrics(parsePrometheusText('vllm:num_requests_running 1.0')).tpotMs === null)
+  ok('上游已删 gpu_cache/swapped → null（卡片 —、告警跳过）', v3.gpuCacheUsagePct === null && v3.swappedCount === null)
 }
 console.log('[9] 模型名解析（vLLM data[0].id / llama models[0].name / 截断兜底）')
 {
@@ -167,23 +183,77 @@ console.log('[9] 模型名解析（vLLM data[0].id / llama models[0].name / 截�
   ok('vLLM data[0].id', parseModelsOutput('{"object":"list","data":[{"id":"qwen38-27b-nvfp4","object":"model"}]}') === 'qwen38-27b-nvfp4')
   ok('空输入 → null', parseModelsOutput('') === null)
 }
-console.log('[10] fetchInferenceMetrics 端到端（本地 HTTP stub）')
+console.log('[10] fetchInference 三分支端到端（本地 HTTP stub，0.10.0 swap 感知）')
 {
   const http = await import('node:http')
+  // —— 分支 1：直连形态（端口上直接是推理服务，/running 404 非 swap）
   const llamaBody = 'llamacpp:requests_processing 1\nllamacpp:requests_deferred 2\nllamacpp:tokens_predicted_total 100\nllamacpp:predicted_tokens_seconds 40\n'
-  const server = http.createServer((req, res) => {
+  const direct = http.createServer((req, res) => {
     if (req.url === '/metrics') { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end(llamaBody) }
     else if (req.url === '/v1/models') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"models":[{"name":"stub-model","model":"stub-model"}]}') }
+    else { res.writeHead(404); res.end('nope') }   // /running → 404 = 非 swap
+  })
+  await new Promise((r) => direct.listen(0, '127.0.0.1', r))
+  const dPort = direct.address().port
+  const r1 = await fetchInference('http://127.0.0.1:' + dPort)
+  ok('直连形态：/running 404 → state=direct 且取数正常', r1.swap.state === 'direct' && r1.vllm && r1.vllm.alive === true && r1.vllm.runningCount === 1 && r1.vllm.tpotMs === 25, JSON.stringify({ s: r1.swap, v: r1.vllm }))
+  ok('直连形态：模型名', r1.modelName === 'stub-model', 'got ' + r1.modelName)
+  direct.close()
+
+  // —— 分支 2：llama-swap 形态（泳道臂在独立端口）
+  const arm = http.createServer((req, res) => {
+    if (req.url === '/metrics') { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end('vllm:num_requests_running 3.0\nvllm:kv_cache_usage_perc 0.66\nvllm:generation_tokens_total 777.0\n') }
+    else if (req.url === '/v1/models') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"data":[{"id":"served-name-a","object":"model"}]}') }
     else { res.writeHead(404); res.end('nope') }
   })
-  await new Promise((r) => server.listen(0, '127.0.0.1', r))
-  const port = server.address().port
-  const r1 = await fetchInferenceMetrics('http://127.0.0.1:' + port)
-  ok('stub /metrics 映射', r1.vllm && r1.vllm.alive === true && r1.vllm.runningCount === 1 && r1.vllm.waitingCount === 2 && r1.vllm.tpotMs === 25, JSON.stringify(r1.vllm))
-  ok('stub /v1/models 模型名', r1.modelName === 'stub-model', 'got ' + r1.modelName)
-  server.close()
-  const r2 = await fetchInferenceMetrics('http://127.0.0.1:1', 800)
-  ok('端点不可达 → 全空', r2.vllm === null && r2.modelName === null, JSON.stringify(r2))
+  await new Promise((r) => arm.listen(0, '127.0.0.1', r))
+  const aPort = arm.address().port
+  const swapBase = http.createServer((req, res) => {
+    if (req.url === '/running') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end('{"running":[{"model":"arm-a","state":"ready","cmd":"x","proxy":"http://localhost:' + aPort + '","ttl":1800}]}')
+    } else if (req.url === '/v1/models') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end('{"data":[{"id":"arm-a","status":{"value":"loaded"}},{"id":"arm-b","status":{"value":"unloaded"}}]}')
+    } else { res.writeHead(404); res.end('nope') }
+  })
+  await new Promise((r) => swapBase.listen(0, '127.0.0.1', r))
+  const sPort = swapBase.address().port
+  const r2 = await fetchInference('http://127.0.0.1:' + sPort)
+  ok('swap 形态：去臂端口取 /metrics', r2.vllm && r2.vllm.alive === true && r2.vllm.runningCount === 3 && r2.vllm.kvCacheUsagePct === 66, JSON.stringify(r2.vllm))
+  ok('swap state=armed + armId/armPort', r2.swap.state === 'armed' && r2.swap.armId === 'arm-a' && r2.swap.armPort === aPort, JSON.stringify(r2.swap))
+  ok('swap 形态：模型名=臂端口 served 名', r2.modelName === 'served-name-a', 'got ' + r2.modelName)
+  ok('proxy localhost → 目标主机', armUrlFromProxy('http://localhost:8012', 'http://10.226.127.71:8000') === 'http://10.226.127.71:8012')
+  ok('proxy 非 localhost 原样返回', armUrlFromProxy('http://192.168.1.5:9000', 'http://10.226.127.71:8000') === 'http://192.168.1.5:9000')
+
+  // —— 分支 2b：无 ready 臂 → loading（有非 ready 臂）/ idle（全卸载）
+  let runningBody = '{"running":[{"model":"arm-b","state":"starting","proxy":"http://localhost:' + aPort + '","ttl":1800}]}'
+  const swapIdle = http.createServer((req, res) => {
+    if (req.url === '/running') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(runningBody) }
+    else if (req.url === '/v1/models') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"data":[{"id":"arm-b","status":{"value":"unloaded"}}]}') }
+    else { res.writeHead(404); res.end('nope') }
+  })
+  await new Promise((r) => swapIdle.listen(0, '127.0.0.1', r))
+  const siPort = swapIdle.address().port
+  const r3 = await fetchInference('http://127.0.0.1:' + siPort, 3000)
+  ok('无 ready 臂 → loading + loadingArm', r3.vllm === null && r3.swap.state === 'loading' && r3.swap.loadingArm === 'arm-b', JSON.stringify(r3.swap))
+  runningBody = '{"running":[]}'
+  const r4 = await fetchInference('http://127.0.0.1:' + siPort, 3000)
+  ok('/running 空 + 目录全 unloaded → idle（中性，不告警态）', r4.vllm === null && r4.swap.state === 'idle', JSON.stringify(r4.swap))
+  const swapLoadingCat = http.createServer((req, res) => {
+    if (req.url === '/running') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"running":[]}') }
+    else if (req.url === '/v1/models') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"data":[{"id":"arm-c","status":{"value":"loading"}}]}') }
+    else { res.writeHead(404); res.end('nope') }
+  })
+  await new Promise((r) => swapLoadingCat.listen(0, '127.0.0.1', r))
+  const slcPort = swapLoadingCat.address().port
+  const r5 = await fetchInference('http://127.0.0.1:' + slcPort, 3000)
+  ok('/running 空 + 目录有 loading 态 → loading（目录兜底探测）', r5.swap.state === 'loading' && r5.swap.loadingArm === 'arm-c', JSON.stringify(r5.swap))
+  swapBase.close(); arm.close(); swapIdle.close(); swapLoadingCat.close()
+
+  // —— 分支 3：入口失联
+  const r6 = await fetchInference('http://127.0.0.1:1', 800)
+  ok('不可达 → state=down + up=false（触发失联告警）', r6.vllm === null && r6.swap.up === false && r6.swap.state === 'down', JSON.stringify(r6.swap))
 }
 
 console.log('[11] 历史抽稀 / 窗口差值 / historyFrames / 告警 key')
@@ -343,6 +413,39 @@ console.log('[15] 探针端到端：probeInfer（本地 HTTP stub）')
   ok('端点不可达 → null', r2 === null, JSON.stringify(r2))
   const r3 = await probeInfer('http://127.0.0.1:' + 1, '')
   ok('缺 model → null（不发请求）', r3 === null)
+}
+
+console.log('[16] swap 状态机事件（0.10.0：模型卸载中性化 / 入口失联告警）')
+{
+  const c = new MonitorCore({ intervalMs: 3000, maxSamples: 200 })
+  const ARMED = { up: true, state: 'armed', armId: 'arm-a', armPort: 8012, loadingArm: null }
+  const IDLE = { up: true, state: 'idle', armId: null, armPort: null, loadingArm: null }
+  const LOADING = { up: true, state: 'loading', armId: null, armPort: null, loadingArm: 'arm-b' }
+  const DOWN = { up: false, state: 'down', armId: null, armPort: null, loadingArm: null }
+  const aliveVllm = () => ({ alive: true, engine: 'vllm', runningCount: 1, waitingCount: 0, kvCacheUsagePct: 20, generationTokensTotal: 100, promptTokensTotal: 50, specDraftTokens: 10, specAcceptedTokens: 9 })
+  let t = 1_000_000
+  const step = (vllm, swap) => { t += 3000; c.ingest({ host: 't', gpu: [{ idx: 0, name: 'G', tempC: 60, utilPct: 10, memUsedMB: 1000, memTotalMB: 11264 }], cpuUtilPct: 10, mem: { usedMB: 1000, totalMB: 8000, pct: 12 }, vllm, swap, ts: t }) }
+  const ev = (name) => c.recentEvents(200).some((e) => e.type === name)
+  const noAlert = (key) => !c.state().alerts.some((a) => a.key === key)
+
+  step(aliveVllm(), ARMED)
+  ok('armed 帧 → alive 无事件', c.state().connected === true && noAlert('vllm_kv') && noAlert('vllm_queue'))
+  step(null, IDLE)
+  step(null, IDLE)
+  ok('armed→idle：无 vllm_stop（ttyl 卸载中性化）', !ev('vllm_stop'))
+  step(null, LOADING)
+  step(aliveVllm(), ARMED)
+  ok('回 ready → vllm_start 带臂名', ev('vllm_start') && c.state().health !== 'warn')
+
+  const c2 = new MonitorCore({ intervalMs: 3000, maxSamples: 200 })
+  let t2 = 1_000_000
+  const step2 = (vllm, swap) => { t2 += 3000; c2.ingest({ host: 't', gpu: [{ idx: 0, name: 'G', tempC: 60, utilPct: 10, memUsedMB: 1000, memTotalMB: 11264 }], cpuUtilPct: 10, mem: { usedMB: 1000, totalMB: 8000, pct: 12 }, vllm, swap, ts: t2 }) }
+  step2(aliveVllm(), ARMED)
+  step2(null, DOWN)
+  step2(null, DOWN)
+  ok('armed→失联 2 帧 → vllm_stop warn（真告警）', c2.recentEvents(200).some((e) => e.type === 'vllm_stop' && e.level === 'warn'))
+  step2(null, DOWN)
+  ok('持续失联不重复 fire', c2.recentEvents(200).filter((e) => e.type === 'vllm_stop').length === 1)
 }
 
 console.log('\n结果：' + pass + ' 通过 / ' + fail + ' 失败')
