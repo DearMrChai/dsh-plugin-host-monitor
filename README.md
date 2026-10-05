@@ -137,6 +137,7 @@ HM_SSH_PASS=密码 node scripts/verify-142.mjs 10.226.127.71   # 走 ZeroTier
 - **模型名跟随换臂**（`index.js` followArmName）：/running 每周期已报告 ready 臂（零额外请求）；臂 id 变化才刷新——同臂命中「臂 id→served 名」缓存直接设，新臂低频拉一次其 `/v1/models`（served 名由 useModelName 固定，同臂不变）；refresh 按钮/开采集/切频率走 swap 感知的 `refreshInferenceName`
 - **新 vLLM fork 指标改名适配**（2026-10 于 142 实测）：TPOT 先认 `request_time_per_output_token_seconds` 新名、旧名 fallback；`gpu_cache_usage_perc`/`num_requests_swapped` 上游已删 → 相应字段 null（卡片 —、告警自动跳过）
 - **小窗**：推理卡无数据态**只用右上状态位表达、不再加说明行/占位行**——`模型未装载`（无臂，闲置自动释放）/`换臂中`/`入口掉线`/`指标缺失`（臂 ready 但取不到 `vllm:*`）/`离线`（非 swap 直连形态无数据）；标题在无臂时只显示「推理」（不残留上次模型名）、换臂中显示「加载中 {臂名}」；armed 时直接进指标行（**无**「入口 · 臂」小字）
+- **指标行增删（2026-10-05 用户裁定，按"看得懂/有意义"筛）**：**加**「前缀缓存命中率」进度条（新 fork 新指标 `prefix_cache_hits/queries_total`，**token 口径**，另带 `prompt_tokens_cached_total`；tooltip 给原始计数）；**并**「生成速率」与「单字输出 TPOT」为一行（`生成速率 · TPOT` = `34 t/s · 42 ms`）；**删**「输入速率」（prompt 突发到达，瞬时速率多数为 0，其意义被 prefill 耗时取代）与「近 1h 生成 / 处理」（sparkline 已表达活动量，绝对数不驱动决策）；**留**「MTP draft / acc」（用户要看累计驻留）。模型名同步改为**跟取数同频**（删掉换臂缓存那套）；被删指标 `gpu_cache_usage_perc`/`num_requests_swapped` 保持字段 null
 - **数据/配置**：`vllmBaseUrl` 语义变「推理入口地址」（默认值不变）；无新增配置项；硬件半（SSH GPU/CPU/内存/网速）0 改动
 - 自测：`scripts/self-test.mjs` 新增 swap 三分支/目录探测/新名 TPOT/状态机事件用例（本地 HTTP stub，无需 142）
 - **⚠ 装载依赖（桌面端 `link:` 装法必读）**：本包运行时依赖必须真实装在自己的 `node_modules` 里——

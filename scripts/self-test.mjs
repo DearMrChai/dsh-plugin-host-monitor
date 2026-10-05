@@ -194,6 +194,17 @@ console.log('[8] 推理指标：llama.cpp / vLLM 双映射（真实样本）')
   ok('旧名 TPOT 仍识别（fallback, 40ms）', v2.tpotMs === 40)
   ok('两名字均无 → TPOT null', mapInferenceMetrics(parsePrometheusText('vllm:num_requests_running 1.0')).tpotMs === null)
   ok('上游已删 gpu_cache/swapped → null（卡片 —、告警跳过）', v3.gpuCacheUsagePct === null && v3.swappedCount === null)
+
+  // 前缀缓存族（2026-10 新 fork 新增；HELP 原文为 token 口径）：原始计数 + 派生命中率
+  const v4 = mapInferenceMetrics(parsePrometheusText([
+    'vllm:prefix_cache_queries_total 200.0',
+    'vllm:prefix_cache_hits_total 150.0',
+    'vllm:prompt_tokens_cached_total 150.0',
+  ].join('\n')))
+  ok('前缀缓存命中率 75%（150/200 tokens）', v4.prefixCacheHitRatePct === 75, 'got ' + v4.prefixCacheHitRatePct)
+  ok('前缀缓存原始计数带出', v4.prefixCacheHitsTotal === 150 && v4.prefixCacheQueriesTotal === 200 && v4.promptTokensCachedTotal === 150)
+  ok('queries=0 → 命中率 null（卡片显示 —）', mapInferenceMetrics(parsePrometheusText('vllm:prefix_cache_queries_total 0\nvllm:prefix_cache_hits_total 0')).prefixCacheHitRatePct === null)
+  ok('llama.cpp 档无前缀缓存字段 → null', v1.prefixCacheHitRatePct === null && v1.prefixCacheHitsTotal === null)
 }
 console.log('[9] 模型名解析（vLLM data[0].id / llama models[0].name / 截断兜底）')
 {
