@@ -136,7 +136,7 @@ HM_SSH_PASS=密码 node scripts/verify-142.mjs 10.226.127.71   # 走 ZeroTier
 - **状态语义**（frame/state 新增 `swap: { up, state, armId, armPort, loadingArm }`）：`armed`（臂在跑）/`idle`（无臂装载，**中性正常态**，不告警）/`loading`（换臂加载中）/`direct`（非 swap）/`down`（入口失联）。核心事件引擎分三支：`vllm_start`（恢复）、`vllm_idle`（💤 未装载 info）、`vllm_swapping`（🔁 换臂中 info）；仅 `down`/直连无数据才累计 `vllm_stop` warn
 - **模型名跟随换臂**（`index.js` followArmName）：/running 每周期已报告 ready 臂（零额外请求）；臂 id 变化才刷新——同臂命中「臂 id→served 名」缓存直接设，新臂低频拉一次其 `/v1/models`（served 名由 useModelName 固定，同臂不变）；refresh 按钮/开采集/切频率走 swap 感知的 `refreshInferenceName`
 - **新 vLLM fork 指标改名适配**（2026-10 于 142 实测）：TPOT 先认 `request_time_per_output_token_seconds` 新名、旧名 fallback；`gpu_cache_usage_perc`/`num_requests_swapped` 上游已删 → 相应字段 null（卡片 —、告警自动跳过）
-- **小窗**：推理卡 off 态细分——`加载中 {臂名}…`/`模型未装载（闲置自动释放）`/`推理入口掉线`（原版「离线」保留给直连无数据）；armed 时标题下加一行小字「入口 :8000 · 臂 :8012」
+- **小窗**：推理卡无数据态**只用右上状态位表达、不再加说明行/占位行**——`模型未装载`（无臂，闲置自动释放）/`换臂中`/`入口掉线`/`指标缺失`（臂 ready 但取不到 `vllm:*`）/`离线`（非 swap 直连形态无数据）；标题在无臂时只显示「推理」（不残留上次模型名）、换臂中显示「加载中 {臂名}」；armed 时直接进指标行（**无**「入口 · 臂」小字）
 - **数据/配置**：`vllmBaseUrl` 语义变「推理入口地址」（默认值不变）；无新增配置项；硬件半（SSH GPU/CPU/内存/网速）0 改动
 - 自测：`scripts/self-test.mjs` 新增 swap 三分支/目录探测/新名 TPOT/状态机事件用例（本地 HTTP stub，无需 142）
 - **⚠ 装载依赖（桌面端 `link:` 装法必读）**：本包运行时依赖必须真实装在自己的 `node_modules` 里——
