@@ -1,6 +1,6 @@
 // scripts/verify-142-http.mjs — Windows 宿主机直连 142 推理服务 /metrics（无 SSH，模拟插件取数路径）
 // 用法: node scripts/verify-142-http.mjs [baseUrl]
-const base = (process.argv[2] || 'http://192.168.31.142:8000').replace(/\/+$/, '')
+const base = (process.argv[2] || 'http://192.168.31.144:8000').replace(/\/+$/, '')
 const t = AbortSignal.timeout(6000)
 const [m, d] = await Promise.all([
   fetch(base + '/metrics', { signal: t }).then((r) => (r.ok ? r.text() : 'HTTP ' + r.status)).catch((e) => 'ERR ' + e.message),

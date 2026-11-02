@@ -2,7 +2,7 @@
 import { SshCollector } from '../lib/ssh.js'
 if (!process.env.HM_SSH_PASS) { console.error('缺少 SSH 凭据：请设置环境变量 HM_SSH_PASS（可选 HM_SSH_USER / HM_SSH_HOST）'); process.exit(1) }
 const c = new SshCollector({ onStatus: () => {} })
-c.configure({ host: process.env.HM_SSH_HOST || '192.168.31.142', port: 22, user: process.env.HM_SSH_USER || '', password: process.env.HM_SSH_PASS })
+c.configure({ host: process.env.HM_SSH_HOST || '192.168.31.144', port: 22, user: process.env.HM_SSH_USER || '', password: process.env.HM_SSH_PASS })
 c.start()
 const d = Date.now() + 20000
 while (!c.connected && Date.now() < d) await new Promise((r) => setTimeout(r, 500))

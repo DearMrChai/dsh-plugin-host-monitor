@@ -3,7 +3,7 @@
 import { SshCollector, buildCollectCmd } from '../lib/ssh.js'
 import { parseCollectOutput } from '../lib/core.js'
 
-const host = process.argv[2] || process.env.HM_SSH_HOST || '192.168.31.142'
+const host = process.argv[2] || process.env.HM_SSH_HOST || '192.168.31.144'
 const port = Number(process.argv[3] || 22)
 const user = process.argv[4] || process.env.HM_SSH_USER || ''
 const password = process.argv[5] || process.env.HM_SSH_PASS || ''
