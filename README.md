@@ -1,15 +1,15 @@
-# dsh-plugin-host-monitor — 服务器监控（142 零部署）
+# dsh-plugin-host-monitor — 服务器监控（目标机零部署）
 
-SSH **持久拉取**远程推理服务器 infer-142（192.168.31.142 / ZeroTier 10.226.127.71）的
+SSH **持久拉取**远程推理服务器 x99-server（192.168.31.144 / ZeroTier 10.226.127.191）的
 GPU×2 温度/使用率/显存、CPU 温度/使用率、内存使用率、vLLM（请求/tokens/时延/缓存/模型名）；在 DSH 内呈现为：
 侧栏**状态胶囊**（实时数值 + 告警标色 + IP 下拉切换）、Agent 工具（state/summary/events）、设置卡（IP/阈值可调）。
 
-> 资源策略：**本机多耗、142 零负担**——142 上不部署任何进程/服务/文件，只被动响应 sshd 执行一条采集命令。
+> 资源策略：**本机多耗、目标机零负担**——目标机上不部署任何进程/服务/文件，只被动响应 sshd 执行一条采集命令。
 
 ## 架构
 
 ```
-142 (Ubuntu, 2×RTX 2080 Ti)         本机 Windows (DSH)
+x99 (Ubuntu, 2×RTX 2080 Ti)         本机 Windows (DSH)
 ┌──────────────┐   SSH 持久连接     ┌────────────────────────────┐
 │ 仅 sshd 响应  │ ◀────────────── │ DSH 插件 dsh-plugin-host-monitor
 │ nvidia-smi    │   每 3s 一条命令   │  ssh2 持久通道（重连退避）    │
@@ -19,7 +19,7 @@ GPU×2 温度/使用率/显存、CPU 温度/使用率、内存使用率、vLLM�
 └──────────────┘                  └────────────────────────────┘
 ```
 
-SSH 采集命令（全 stdlib、无 sudo、142 零改动，分段标记 #S/#T/#M）：
+SSH 采集命令（全 stdlib、无 sudo、目标机零改动，分段标记 #S/#T/#M）：
 ```sh
 nvidia-smi --query-gpu=index,name,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits; echo '#S'; grep '^cpu ' /proc/stat; echo '#T'; <coretemp/k10temp 最大温度>; echo '#M'; grep -E '^MemTotal|^MemAvailable' /proc/meminfo
 ```
@@ -30,12 +30,12 @@ nvidia-smi --query-gpu=index,name,temperature.gpu,utilization.gpu,memory.used,me
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| host | 192.168.31.142 | 下拉切换：局域网 / ZeroTier（胶囊里也有同款下拉） |
+| host | 192.168.31.144 | 下拉切换：局域网 / ZeroTier（胶囊里也有同款下拉） |
 | sshUser / sshPass | （空）/（空） | SSH 凭据代码不内置默认值——设置卡填写或 cordis.patch.yml config 提供；仅存本机 DSH 设置文件 |
-| intervalMs | 0 | 采样间隔（**0 = 默认关闭采集**，小窗频率下拉选秒数即手动开启；关闭时 SSH 断开、监控数据重置；其余 1000~60000），142 资源≈0（仅每周期一条命令） |
+| intervalMs | 0 | 采样间隔（**0 = 默认关闭采集**，小窗频率下拉选秒数即手动开启；关闭时 SSH 断开、监控数据重置；其余 1000~60000），目标机资源≈0（仅每周期一条命令） |
 | maxSamples | 28800 | 24h @3s 环形历史（内存，重启清零） |
 | thresholds | 默认 | GPU>82℃ 预警 / >90℃ 危险；CPU>75℃ / >85℃；内存>90%；GPU 使用率连续 5 帧≥95%；vLLM KV 缓存>85%、请求排队≥8（连续 3 帧） |
-| simulate | false | 模拟模式：不连 142，本地生成演示数据 |
+| simulate | false | 模拟模式：不连目标机，本地生成演示数据 |
 | showGpu / showVllm / showCpu | true | 小窗模块显示勾选：显卡块 / 推理块 / CPU·内存块 是否显示（收起态三槽同步遵循） |
 | vllmBaseUrl | http://{host}:8000 | 推理入口地址（0.10.0）：llama-swap 统一入口或 vLLM/llama.cpp 直连地址；swap 在时自动换臂端口取 /metrics 与 /v1/models，非 swap 当直连后端；支持 `{host}` 占位符=当前所选目标 IP（跟随 ZeroTier/局域网切换） |
 | vllmModelName | （空） | vLLM 模型名手动兜底（可选）：自动读取 /v1/models 失败时显示此值；**留空 = 不兜底**，推理服务器离线时模型名显示空/「无」（不再显示旧默认值） |
@@ -87,7 +87,7 @@ nvidia-smi --query-gpu=index,name,temperature.gpu,utilization.gpu,memory.used,me
 ## HTTP 路由（胶囊数据源）
 
 - ```GET /monitor/api/status``` · ```/monitor/api/summary?minutes=``` · ```/monitor/api/events?n=```
-- ```GET /monitor/api/host?host=192.168.31.142|10.226.127.71``` — 胶囊下拉切目标
+- ```GET /monitor/api/host?host=192.168.31.144|10.226.127.191``` — 胶囊下拉切目标
 - ```GET /monitor/api/reconnect``` — 手动重连
 - ```GET /monitor/api/refresh``` — 手动刷新：采一帧（硬件+推理）+ 补拉一次模型名
 
@@ -102,7 +102,7 @@ nvidia-smi --query-gpu=index,name,temperature.gpu,utilization.gpu,memory.used,me
      inject: [settings, tools]
      config:
        enabled: true
-       host: '192.168.31.142'
+       host: '192.168.31.144'
        intervalMs: 3000
    ```
 3. 新 entry 会触发热重载重新 import；若胶囊/工具未出现，重启 DSH 进程。
@@ -122,7 +122,7 @@ nvidia-smi --query-gpu=index,name,temperature.gpu,utilization.gpu,memory.used,me
 node scripts/self-test.mjs          # 纯逻辑自测（无网络）
 # verify 脚本凭据走环境变量（代码不含任何默认凭据）：
 HM_SSH_USER=用户名 HM_SSH_PASS=密码 node scripts/verify-142.mjs         # 真连目标机跑采集命令并解析
-HM_SSH_PASS=密码 node scripts/verify-142.mjs 10.226.127.71   # 走 ZeroTier
+HM_SSH_PASS=密码 node scripts/verify-142.mjs 10.226.127.191   # 走 ZeroTier
 ```
 
 ## 变更记录

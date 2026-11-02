@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 const winUrl = (p) => 'file:///' + p.replaceAll('\\', '/')
 registerHooks({
   resolve(specifier, _context, nextResolve) {
-    if (specifier === '@deepseek-ai/schemastery') return { url: winUrl('D:/DevEnv/npm-global/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/schemastery/lib/index.mjs'), shortCircuit: true }
+    if (specifier === '@deepseek-ai/schemastery') return { url: new URL('../node_modules/@deepseek-ai/schemastery/lib/index.mjs', import.meta.url).href, shortCircuit: true }
     if (specifier === '@deepseek-ai/dsh-tools') return { url: new URL('./shims/dsh-tools.mjs', import.meta.url).href, shortCircuit: true }
     // ssh2 走 Node 原生解析：命中本包 node_modules/ssh2（装不上就会在 [0] 冒烟里明确报错——这是故意的）
     return nextResolve(specifier, _context)
@@ -60,11 +60,11 @@ console.log('[0b] 冒烟：index.js 模块装载 + Config（提前拦截宿主 A
     const C = idx.Config
     let cfg0 = null, cfgErr = null
     try { cfg0 = C({}) } catch (e) { cfgErr = e?.message || String(e) }
-    ok('Config({}) 填充全默认值', !!cfg0 && cfg0.probeIntervalMs === 60000 && cfg0.intervalMs === 0 && cfg0.vllmModelName === '' && cfg0.maxSamples === 28800 && cfg0.host === '192.168.31.142' && cfg0.enabled === true && cfg0.thresholds?.gpuTempWarn === 82, cfgErr ?? JSON.stringify(cfg0))
+    ok('Config({}) 填充全默认值', !!cfg0 && cfg0.probeIntervalMs === 60000 && cfg0.intervalMs === 0 && cfg0.vllmModelName === '' && cfg0.maxSamples === 28800 && cfg0.host === '192.168.31.144' && cfg0.enabled === true && cfg0.thresholds?.gpuTempWarn === 82, cfgErr ?? JSON.stringify(cfg0))
     ok('非法值 probeIntervalMs=1.5 被拒绝（要求 natural/整数）', throws(() => C({ probeIntervalMs: 1.5 })))
     ok('非法值 probeIntervalMs>1h 被拒绝（max=3600000）', throws(() => C({ probeIntervalMs: 3600001 })))
     ok('非法值 intervalMs=-5 被拒绝（min=1000）', throws(() => C({ intervalMs: -5 })))
-    ok('非法 host 被拒绝（union 仅允许 142 两个 IP）', throws(() => C({ host: '8.8.8.8' })))
+    ok('非法 host 被拒绝（union 仅允许目标机两个 IP）', throws(() => C({ host: '8.8.8.8' })))
     ok('probeIntervalMs=0 合法（0=关）', C({ probeIntervalMs: 0 }).probeIntervalMs === 0)
   }
 }
