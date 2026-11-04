@@ -1,6 +1,6 @@
 # dsh-plugin-host-monitor — 服务器监控（目标机零部署）
 
-SSH **持久拉取**远程推理服务器 x99-server（192.168.31.144 / ZeroTier 10.226.127.191）的
+SSH **持久拉取**远程推理服务器（目标机与列表由 `host`/`hosts` 配置，切换免改代码）的
 GPU×2 温度/使用率/显存、CPU 温度/使用率、内存使用率、vLLM（请求/tokens/时延/缓存/模型名）；在 DSH 内呈现为：
 侧栏**状态胶囊**（实时数值 + 告警标色 + IP 下拉切换）、Agent 工具（state/summary/events）、设置卡（IP/阈值可调）。
 
@@ -30,8 +30,9 @@ nvidia-smi --query-gpu=index,name,temperature.gpu,utilization.gpu,memory.used,me
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| host | 192.168.31.144 | 下拉切换：局域网 / ZeroTier（胶囊里也有同款下拉） |
-| sshUser / sshPass | （空）/（空） | SSH 凭据代码不内置默认值——设置卡填写或 cordis.patch.yml config 提供；仅存本机 DSH 设置文件 |
+| host | 192.168.31.142 | 当前目标 IP（自由字符串；下拉从 hosts 列表选择，胶囊里也有同款下拉） |
+| hosts | 192.168.31.142,10.226.127.71 | 目标机列表（逗号分隔）；每项可写 IP 或 IP\|账号\|密码——切换目标凭据自动跟随，缺省回退 sshUser/sshPass |
+| sshUser / sshPass | （空）/（空） | SSH 凭据代码不内置默认值——设置卡填写或 cordis.patch.yml config 提供；仅存本机 DSH 设置文件（列表项未带凭据时的全局兜底） |
 | intervalMs | 0 | 采样间隔（**0 = 默认关闭采集**，小窗频率下拉选秒数即手动开启；关闭时 SSH 断开、监控数据重置；其余 1000~60000），目标机资源≈0（仅每周期一条命令） |
 | maxSamples | 28800 | 24h @3s 环形历史（内存，重启清零） |
 | thresholds | 默认 | GPU>82℃ 预警 / >90℃ 危险；CPU>75℃ / >85℃；内存>90%；GPU 使用率连续 5 帧≥95%；vLLM KV 缓存>85%、请求排队≥8（连续 3 帧） |
@@ -87,7 +88,7 @@ nvidia-smi --query-gpu=index,name,temperature.gpu,utilization.gpu,memory.used,me
 ## HTTP 路由（胶囊数据源）
 
 - ```GET /monitor/api/status``` · ```/monitor/api/summary?minutes=``` · ```/monitor/api/events?n=```
-- ```GET /monitor/api/host?host=192.168.31.144|10.226.127.191``` — 胶囊下拉切目标
+- ```GET /monitor/api/host?host=<hosts 列表内 IP>``` — 胶囊下拉切目标（凭据随列表项自动跟随）
 - ```GET /monitor/api/reconnect``` — 手动重连
 - ```GET /monitor/api/refresh``` — 手动刷新：采一帧（硬件+推理）+ 补拉一次模型名
 

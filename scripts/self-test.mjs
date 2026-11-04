@@ -22,7 +22,7 @@ registerHooks({
 import {
   parseGpuOutput, parseCpuLine, cpuUtilPercent, parseMemOutput,
   parseTempInput, parseCollectOutput, parseModelsOutput, MonitorCore,
-  decimateFrames, windowDelta, parseNetDev, parseIpAddr,
+  decimateFrames, windowDelta, parseNetDev, parseIpAddr, parseHostsSpec,
 } from '../lib/core.js'
 import { parsePrometheusText, mapInferenceMetrics, fetchInference, armUrlFromProxy } from '../lib/http-metrics.js'
 import { probeInfer } from '../lib/probe.js'
@@ -60,11 +60,13 @@ console.log('[0b] 冒烟：index.js 模块装载 + Config（提前拦截宿主 A
     const C = idx.Config
     let cfg0 = null, cfgErr = null
     try { cfg0 = C({}) } catch (e) { cfgErr = e?.message || String(e) }
-    ok('Config({}) 填充全默认值', !!cfg0 && cfg0.probeIntervalMs === 60000 && cfg0.intervalMs === 0 && cfg0.vllmModelName === '' && cfg0.maxSamples === 28800 && cfg0.host === '192.168.31.144' && cfg0.enabled === true && cfg0.thresholds?.gpuTempWarn === 82, cfgErr ?? JSON.stringify(cfg0))
+    ok('Config({}) 填充全默认值', !!cfg0 && cfg0.probeIntervalMs === 60000 && cfg0.intervalMs === 0 && cfg0.vllmModelName === '' && cfg0.maxSamples === 28800 && cfg0.host === '192.168.31.142' && cfg0.hosts === '192.168.31.142,10.226.127.71' && cfg0.enabled === true && cfg0.thresholds?.gpuTempWarn === 82, cfgErr ?? JSON.stringify(cfg0))
     ok('非法值 probeIntervalMs=1.5 被拒绝（要求 natural/整数）', throws(() => C({ probeIntervalMs: 1.5 })))
     ok('非法值 probeIntervalMs>1h 被拒绝（max=3600000）', throws(() => C({ probeIntervalMs: 3600001 })))
     ok('非法值 intervalMs=-5 被拒绝（min=1000）', throws(() => C({ intervalMs: -5 })))
-    ok('非法 host 被拒绝（union 仅允许目标机两个 IP）', throws(() => C({ host: '8.8.8.8' })))
+    ok('host 自由字符串（任意 IP 合法）', C({ host: '8.8.8.8' }).host === '8.8.8.8')
+    ok('parseHostsSpec：项带凭据优先、缺省回退全局', JSON.stringify(parseHostsSpec('192.168.31.142|u1|p1, 10.226.127.71 ', 'fbU', 'fbP')) === JSON.stringify([{ host: '192.168.31.142', user: 'u1', pass: 'p1' }, { host: '10.226.127.71', user: 'fbU', pass: 'fbP' }]))
+    ok('parseHostsSpec：空白容错', parseHostsSpec(' , , ').length === 0)
     ok('probeIntervalMs=0 合法（0=关）', C({ probeIntervalMs: 0 }).probeIntervalMs === 0)
   }
 }
